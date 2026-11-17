@@ -9,7 +9,7 @@ import { setBusinessProfile, createCustomer } from '../src/core/entities.ts';
 import { issueDocument, ValidationError } from '../src/core/documents.ts';
 import { recordExpense, reverseExpense, verifyExpenses, recordingDeadline, type ExpenseInput } from '../src/core/expenses.ts';
 import { receiptsPaymentsBook, annualSummary, exemptCeilingStatus } from '../src/core/books.ts';
-import { createBackup } from '../src/core/backup.ts';
+import { createBackup, fsAttachmentSaver } from '../src/core/backup.ts';
 import { todayIL } from '../src/core/util.ts';
 
 let dir: string, db: DatabaseSync, customerId: number;
@@ -25,19 +25,20 @@ beforeEach(() => {
   setBusinessProfile(db, { name: 'עסק', idNumber: '123456782', address: 'כתובת', status: 'exempt' });
   customerId = createCustomer(db, { name: 'בית ספר', address: 'כתובת' }).id;
 });
+const rec = (i: ExpenseInput) => recordExpense(db, i, fsAttachmentSaver(dir));
 afterEach(() => { db.close(); rmSync(dir, { recursive: true, force: true }); });
 
 describe('הוצאות (הוראות 12, 20, 23(א)(2))', () => {
   test('מספור עוקב; אין עריכה ואין מחיקה גם ב-SQL', () => {
-    const a = recordExpense(db, dir, exp()).expense;
-    const b = recordExpense(db, dir, exp({ docNumber: '1002' })).expense;
+    const a = rec(exp()).expense;
+    const b = rec(exp({ docNumber: '1002' })).expense;
     assert.deepEqual([a.entry_number, b.entry_number], [1, 2]);
     assert.throws(() => db.exec('UPDATE expenses SET amount_agorot = 1'), /FORBIDDEN/);
     assert.throws(() => db.exec('DELETE FROM expenses'), /FORBIDDEN/);
   });
 
   test('רישום נגדי: המקור נשאר, נוסף רישום שלילי, ואי אפשר לבטל פעמיים', () => {
-    const a = recordExpense(db, dir, exp()).expense;
+    const a = rec(exp()).expense;
     const r = reverseExpense(db, a.id, 'נרשם פעמיים');
     assert.equal(r.amount_agorot, -25_000);
     assert.equal(r.reverses_id, a.id);
@@ -47,20 +48,20 @@ describe('הוצאות (הוראות 12, 20, 23(א)(2))', () => {
   });
 
   test('ולידציה: ספק, תיאור, סכום חובה; בלי מספר מסמך – אזהרה', () => {
-    assert.throws(() => recordExpense(db, dir, exp({ supplierName: '' })), /שם הספק/);
-    assert.throws(() => recordExpense(db, dir, exp({ amountAgorot: 0 })), /חיובי/);
-    assert.throws(() => recordExpense(db, dir, exp({ docNumber: undefined })), (e: any) => e instanceof ValidationError && e.warnings.length === 1);
-    assert.ok(recordExpense(db, dir, exp({ docNumber: undefined, acknowledgeWarnings: true })).expense);
+    assert.throws(() => rec(exp({ supplierName: '' })), /שם הספק/);
+    assert.throws(() => rec(exp({ amountAgorot: 0 })), /חיובי/);
+    assert.throws(() => rec(exp({ docNumber: undefined })), (e: any) => e instanceof ValidationError && e.warnings.length === 1);
+    assert.ok(rec(exp({ docNumber: undefined, acknowledgeWarnings: true })).expense);
   });
 
   test('רישום באיחור (מעבר ל-30 יום מתום החודש) – אזהרה', () => {
     assert.equal(recordingDeadline('2026-01-15'), '2026-03-02');
-    assert.throws(() => recordExpense(db, dir, exp({ expenseDate: '2025-01-10' })), (e: any) => e.warnings?.some((w: string) => w.includes('באיחור')));
+    assert.throws(() => rec(exp({ expenseDate: '2025-01-10' })), (e: any) => e.warnings?.some((w: string) => w.includes('באיחור')));
   });
 
   test('קובץ מצורף נשמר לפי hash ונכלל בגיבוי', () => {
     const base64 = Buffer.from('%PDF-1.4 receipt').toString('base64');
-    const { expense } = recordExpense(db, dir, exp({ attachment: { name: 'r.pdf', type: 'application/pdf', base64 } }));
+    const { expense } = rec(exp({ attachment: { name: 'r.pdf', type: 'application/pdf', base64 } }));
     const a = JSON.parse(expense.attachment!);
     assert.ok(existsSync(join(dir, 'attachments', a.file)));
     const usb = join(dir, 'usb'); require_mkdir(usb);
@@ -73,8 +74,8 @@ describe('הוצאות (הוראות 12, 20, 23(א)(2))', () => {
     issueDocument(db, { type: 'invoice_receipt', customerId,
       lines: [{ description: 'ליווי', quantity: 2, unit: 'מפגש', unitPriceAgorot: 40_000 }],
       payments: [{ method: 'transfer', amountAgorot: 70_000, date: today, transfer: {} }], withholdingAgorot: 10_000 });
-    recordExpense(db, dir, exp());
-    recordExpense(db, dir, exp({ description: 'מחשב נייד', category: 'מחשב, תוכנה ומנויים', amountAgorot: 400_000, columnKind: 'asset', docNumber: '77' }));
+    rec(exp());
+    rec(exp({ description: 'מחשב נייד', category: 'מחשב, תוכנה ומנויים', amountAgorot: 400_000, columnKind: 'asset', docNumber: '77' }));
     const { rows, totals } = receiptsPaymentsBook(db, '2000-01-01', today);
     assert.equal(rows.length, 3);
     assert.deepEqual(totals, { receipt: 80_000, withholding: 10_000, payment: 25_000, asset: 400_000, deposit: 0 });

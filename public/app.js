@@ -10,7 +10,11 @@ const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem
 const TYPES = { order: 'הזמנה', invoice: 'חשבונית עסקה', invoice_receipt: 'חשבונית עסקה/קבלה', receipt: 'קבלה', credit: 'הודעת זיכוי' };
 const METHODS = { transfer: 'העברה בנקאית', cash: 'מזומן', cheque: 'שיק', credit_card: 'כרטיס אשראי', app: 'אפליקציה (Bit/PayBox)', other: 'אחר' };
 
+// גרסת הדפדפן (GitHub Pages): כל ה-API רץ מקומית בדפדפן דרך window.pinkasLocal.
+const LOCAL = () => window.pinkasLocal;
+
 async function api(path, opts = {}) {
+  if (LOCAL()) return LOCAL().api(path, opts);
   const res = await fetch(path, {
     method: opts.method ?? 'GET',
     headers: { 'Content-Type': 'application/json', 'X-Pinkas': '1' },
@@ -41,11 +45,13 @@ function dialog(html, buttons) {
   });
 }
 
-function download({ blob, filename }) {
+function download(result) {
+  if (result.printable) return LOCAL().print(result.printable.html, result.printable.filename);   // דפדפן: חלון הדפסה → "שמירה כ-PDF"
+  const { blob, filename } = result;
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename ?? 'pinkas.pdf'; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
-const openPdfGet = (url) => window.open(url, '_blank');
+const openPdfGet = (url) => (LOCAL() ? api(url).then(download).catch((e) => toast(e.message)) : window.open(url, '_blank'));
 
 function errorBox(e) {
   const list = [...(e.errors ?? []), ...(e.warnings ?? [])];
@@ -108,6 +114,7 @@ async function dashboard() {
 // ---------------------------------------------------------------- גיבוי
 async function backup() {
   const s = await api('/api/backup/status');
+  if (s.mode === 'browser') return backupBrowser(s);
   const fmtAt = (iso) => new Intl.DateTimeFormat('he-IL', { timeZone: 'Asia/Jerusalem', dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso));
   const stateTag = s.state === 'ok' ? '<span class="tag ok">בוצע ברבעון הנוכחי</span>'
     : s.state === 'due' ? '<span class="tag warn">יש לגבות השבוע</span>' : '<span class="tag bad">באיחור</span>';
@@ -166,6 +173,70 @@ async function backup() {
     } catch (e) { toast(e.message); }
   }));
   app.querySelectorAll('[data-report]').forEach((b) => (b.onclick = () => openPdfGet(`/api/backup/report?path=${encodeURIComponent(b.dataset.report)}`)));
+}
+
+// גיבוי בגרסת הדפדפן: קובץ גיבוי שמורידים ושומרים בכונן חיצוני.
+function pickFile() {
+  return new Promise((resolve) => {
+    const i = document.createElement('input'); i.type = 'file'; i.accept = '.json,application/json';
+    i.onchange = () => resolve(i.files[0] ?? null); i.click();
+  });
+}
+
+async function backupBrowser(s) {
+  const fmtAt = (iso) => new Intl.DateTimeFormat('he-IL', { timeZone: 'Asia/Jerusalem', dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso));
+  const stateTag = s.state === 'ok' ? '<span class="tag ok">בוצע ברבעון הנוכחי</span>'
+    : s.state === 'due' ? '<span class="tag warn">יש לגבות השבוע</span>' : '<span class="tag bad">באיחור</span>';
+  app.innerHTML = `<h2>גיבוי</h2>
+  <div class="msg warn"><b>חשוב:</b> בגרסת הדפדפן הספרים שמורים <b>בתוך הדפדפן הזה במחשב הזה</b>.
+    ניקוי נתוני גלישה, מחיקת פרופיל או החלפת מחשב – ימחקו אותם. <b>קובץ הגיבוי הוא העותק היחיד מחוץ לדפדפן.</b>
+    ${s.persisted ? '' : '<br>הדפדפן לא אישר אחסון קבוע לאתר – גבה לעתים קרובות.'}</div>
+  <div class="card"><h3>גיבוי לקובץ (הוראה 25(ו)(2))</h3>
+    <p>מצב רבעון ${s.quarter}/${s.year}: ${stateTag}
+      ${s.lastExternal ? `<span class="muted"> · אחרון: ${fmtAt(s.lastExternal.at)} (${s.lastExternal.doc_count} מסמכים${s.lastExternal.verified_ok ? ', אומת' : ', <b>לא אומת</b>'})</span>` : '<span class="muted"> · עדיין לא בוצע גיבוי</span>'}</p>
+    <p class="muted">"הורד גיבוי" יוצר קובץ אחד עם כל הספרים, המסמכים המצורפים והמקורות שהופקו, ומאמת אותו.
+      <b>העתק את הקובץ לכונן חיצוני</b> ששמור במקום אחר, בישראל – לפחות בשבוע הראשון של כל רבעון, ומומלץ אחרי כל יום עבודה.
+      חשוב: להודיע בכתב לפקיד השומה היכן נשמר הגיבוי.</p>
+    <div class="actions"><button class="btn primary" id="bkb-export">הורד גיבוי עכשיו</button></div>
+    <div id="bk-msg"></div></div>
+  <div class="card"><h3>בדיקה ושחזור</h3>
+    <p class="muted">"בדוק קובץ" מוודא שהקובץ שלם והמספור רציף. "דוח מקובץ" מפיק יומן רשומות ישירות מהגיבוי (25(ו)(3)).
+      "שחזר" טוען גיבוי לדפדפן ריק – למשל במחשב חדש. (אסור לשחזר מעל ספרים קיימים, כדי לא לדרוס אותם.)</p>
+    <div class="actions"><button class="btn" id="bkb-verify">בדוק קובץ גיבוי…</button><button class="btn" id="bkb-report">דוח מקובץ גיבוי…</button>
+      <button class="btn danger" id="bkb-restore">שחזר מקובץ…</button></div></div>
+  <div class="card"><h3>היסטוריה</h3>
+    <p class="muted">בנוסף, כל יום נשמר עותק אוטומטי בתוך הדפדפן (14 אחרונים) – הגנה מתקלות, לא תחליף לגיבוי לקובץ.</p>
+    <table><thead><tr><th>מתי</th><th>סוג</th><th>קובץ</th><th class="num">מסמכים</th><th>אומת</th></tr></thead><tbody>
+    ${s.log.map((r) => `<tr><td>${fmtAt(r.at)}</td><td>${r.kind === 'external' ? 'קובץ גיבוי' : 'עותק בדפדפן'}</td><td dir="ltr" style="font-size:12px">${esc(r.path)}</td>
+      <td class="num">${r.doc_count}</td><td>${r.verified_ok ? '<span class="tag ok">כן</span>' : '<span class="tag bad">לא</span>'}</td></tr>`).join('')}
+    </tbody></table></div>`;
+  $('#bkb-export').onclick = async () => {
+    $('#bkb-export').disabled = true;
+    try {
+      const r = await LOCAL().exportBackup();
+      await backup();
+      $('#bk-msg').innerHTML = r.verify.ok
+        ? `<div class="msg info">✔ הקובץ <b dir="ltr">${esc(r.name)}</b> הורד ואומת (${r.verify.docCount} מסמכים). עכשיו העתק אותו לכונן החיצוני.</div>`
+        : `<div class="msg err">הקובץ הורד אך האימות נכשל:<ul>${r.verify.problems.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>`;
+    } catch (e) { $('#bk-msg').innerHTML = errorBox(e); $('#bkb-export').disabled = false; }
+  };
+  $('#bkb-verify').onclick = async () => {
+    const f = await pickFile(); if (!f) return;
+    try {
+      const v = await LOCAL().verifyBackupFile(f);
+      await dialog(v.ok ? `<h3>✔ הגיבוי תקין</h3><p>${v.docCount} מסמכים, נוצר ${fmtAt(v.createdAt)}. כל הקבצים שלמים והמספור רציף.</p>`
+        : `<h3>בעיות בגיבוי</h3><ul>${v.problems.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`, [{ label: 'סגור', value: true, cls: 'primary' }]);
+    } catch (e) { toast(e.message); }
+  };
+  $('#bkb-report').onclick = async () => { const f = await pickFile(); if (f) LOCAL().reportFromBackupFile(f).catch((e) => toast(e.message)); };
+  $('#bkb-restore').onclick = async () => {
+    const ok = await dialog('<h3>שחזור מגיבוי</h3><p>הספרים מהקובץ ייטענו לדפדפן הזה. אפשרי רק אם עדיין אין כאן מסמכים, הוצאות או הכנסות.</p>',
+      [{ label: 'בחר קובץ ושחזר', value: true, cls: 'primary' }, { label: 'ביטול', value: false }]);
+    if (!ok) return;
+    const f = await pickFile(); if (!f) return;
+    try { const r = await LOCAL().restoreFromFile(f); toast(`שוחזר: ${r.docCount} מסמכים`); go('dashboard'); }
+    catch (e) { await dialog(`<h3>השחזור לא בוצע</h3><p>${esc(e.message)}</p>`, [{ label: 'סגור', value: true }]); }
+  };
 }
 
 // ---------------------------------------------------------------- מסמך חדש
@@ -357,7 +428,11 @@ async function documents(opts = {}) {
 async function docAction(action, d) {
   const name = `${d.typeName} מס' ${d.number}`;
   try {
-    if (action === 'view') return window.open(`/api/documents/${d.id}/view`, '_blank');
+    if (action === 'view') {
+      if (!LOCAL()) return window.open(`/api/documents/${d.id}/view`, '_blank');
+      const win = window.open('', '_blank');                 // נפתח מיד (בתוך הלחיצה) כדי שלא ייחסם
+      return LOCAL().showHtmlInWindow(win, (await api(`/api/documents/${d.id}/view`)).html);
+    }
     if (action === 'original') {
       const ok = await dialog(`<h3>הפקת מקור – ${esc(name)}</h3><p>ה"מקור" מופק <b>פעם אחת בלבד</b>. אחרי ההפקה: להדפיס, לחתום ביד ולמסור/לשלוח ללקוח. כל הפקה נוספת תסומן "העתק".</p><p>אחרי הפקת מקור אי אפשר לבטל את המסמך – רק להוציא הודעת זיכוי.</p>`,
         [{ label: 'הפק מקור', value: true, cls: 'primary' }, { label: 'ביטול', value: false }]);
@@ -427,7 +502,7 @@ async function expenses() {
     <td class="num">${e.entry_number}</td><td>${fmtDate(e.expense_date)}</td><td>${esc(e.supplier_name)}</td>
     <td>${esc(e.description)}${e.column_kind !== 'regular' ? ` <span class="tag">${e.column_kind === 'asset' ? 'נכס' : 'פיקדון'}</span>` : ''}${e.reversed ? ' <span class="tag bad">בוטל</span>' : ''}</td>
     <td>${esc(e.category)}</td><td class="num">${shekels(e.amount_agorot)}</td>
-    <td>${esc(meta.docKinds[e.doc_kind])} ${esc(e.doc_number ?? '')}${e.attachment ? ` <a href="/api/expenses/${e.id}/attachment" target="_blank">📎</a>` : ''}</td>
+    <td>${esc(meta.docKinds[e.doc_kind])} ${esc(e.doc_number ?? '')}${e.attachment ? ` <a href="/api/expenses/${e.id}/attachment" target="_blank" data-att="${e.id}">📎</a>` : ''}</td>
     <td>${!e.reverses_id && !e.reversed ? `<button class="btn small danger" data-rev="${e.id}">רישום נגדי</button>` : ''}</td></tr>`).join('')}
   </tbody></table>${list.length ? '' : '<p class="muted">עדיין אין הוצאות.</p>'}</div>`;
 
@@ -454,6 +529,11 @@ async function expenses() {
     }
   };
   $('#e-save').onclick = () => save(false);
+  if (LOCAL()) app.querySelectorAll('[data-att]').forEach((a) => (a.onclick = (ev) => {
+    ev.preventDefault();
+    const win = window.open('', '_blank');
+    LOCAL().openAttachment(win, Number(a.dataset.att)).catch((e) => { win?.close(); toast(e.message); });
+  }));
   await otherIncomeSection();
   app.querySelectorAll('[data-rev]').forEach((b) => (b.onclick = async () => {
     const e = list.find((x) => x.id === Number(b.dataset.rev));
@@ -603,4 +683,5 @@ async function settings(opts = {}) {
   }));
 }
 
-go('dashboard');
+// בגרסת הדפדפן מחכים שהמסד המקומי ייטען
+Promise.resolve(window.pinkasReady).then(() => go('dashboard')).catch(() => {});

@@ -6,7 +6,7 @@
  *   (ש"ות "כל זכות" על עסק זעיר). אם התקבלו מהמעסיק – הם שכר, לא כאן.
  */
 import type { DatabaseSync } from 'node:sqlite';
-import { inTransaction } from '../db/open.ts';
+import { inTransaction } from '../db/tx.ts';
 import { appendAudit } from './audit.ts';
 import { ValidationError } from './documents.ts';
 import { canonicalJson, isIsoDate, nowIso, sha256, todayIL } from './util.ts';

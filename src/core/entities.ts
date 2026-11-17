@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { inTransaction } from '../db/open.ts';
+import { inTransaction } from '../db/tx.ts';
 import { appendAudit } from './audit.ts';
 import { nowIso } from './util.ts';
 

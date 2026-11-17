@@ -4,7 +4,7 @@
  * 18 (מספור, העתק), 23–23א (תיקון/ביטול), נספח ה' (מקור/העתק/טיוטה, רציפות), תוספת י"א.
  */
 import type { DatabaseSync } from 'node:sqlite';
-import { inTransaction } from '../db/open.ts';
+import { inTransaction } from '../db/tx.ts';
 import { appendAudit } from './audit.ts';
 import { getBusinessProfile, getCustomer } from './entities.ts';
 import { PARAMS, paramAt } from './params.ts';

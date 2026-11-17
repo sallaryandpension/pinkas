@@ -7,12 +7,12 @@
  * - הוראה 23(א)(2): תיקון רק ברישום נגדי.
  */
 import type { DatabaseSync } from 'node:sqlite';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { inTransaction } from '../db/open.ts';
+import { inTransaction } from '../db/tx.ts';
 import { appendAudit } from './audit.ts';
-import { canonicalJson, isIsoDate, nowIso, sha256, todayIL } from './util.ts';
+import { base64ToBytes, canonicalJson, isIsoDate, nowIso, sha256, sha256Bytes, todayIL } from './util.ts';
+
+/** שמירת קובץ מצורף לפי שמו (hash.ext). Node: לדיסק; דפדפן: ל-IndexedDB. התוכן לעולם לא נדרס. */
+export type SaveAttachment = (file: string, bytes: Uint8Array) => void;
 import { ValidationError } from './documents.ts';
 
 export const EXPENSE_CATEGORIES = [
@@ -81,7 +81,7 @@ function insertExpense(db: DatabaseSync, data: Omit<ExpenseRow, 'id' | 'entry_nu
 }
 
 /** רישום הוצאה. מחזיר את הרשומה ואזהרות (אם אושרו). */
-export function recordExpense(db: DatabaseSync, dataDir: string, input: ExpenseInput): { expense: ExpenseRow; warnings: string[] } {
+export function recordExpense(db: DatabaseSync, input: ExpenseInput, saveAttachment?: SaveAttachment): { expense: ExpenseRow; warnings: string[] } {
   const errors: string[] = [];
   const warnings: string[] = [];
   if (!isIsoDate(input.expenseDate)) errors.push('תאריך ההוצאה לא תקין');
@@ -97,23 +97,22 @@ export function recordExpense(db: DatabaseSync, dataDir: string, input: ExpenseI
   if (!input.docNumber?.trim()) warnings.push('לא צוין מספר מסמך הספק – מומלץ לציין לצורך איתור התיעוד (הוראה 24)');
   if (isIsoDate(input.expenseDate) && todayIL() > recordingDeadline(input.expenseDate))
     warnings.push(`רישום באיחור: הוצאה מ-${input.expenseDate} הייתה צריכה להירשם עד ${recordingDeadline(input.expenseDate)} (הוראה 20)`);
-  let buf: Buffer | null = null;
+  let buf: Uint8Array | null = null;
   if (input.attachment) {
     if (!(input.attachment.type in ALLOWED_TYPES)) errors.push('סוג קובץ לא נתמך (PDF / JPG / PNG / WEBP / HEIC)');
-    buf = Buffer.from(input.attachment.base64 ?? '', 'base64');
+    try { buf = base64ToBytes(input.attachment.base64 ?? ''); } catch { buf = new Uint8Array(0); }
     if (buf.length === 0 || buf.length > MAX_ATTACHMENT) errors.push('קובץ מצורף ריק או גדול מ-10MB');
+    if (!saveAttachment) errors.push('שמירת קבצים מצורפים אינה זמינה');
   }
   if (errors.length) throw new ValidationError(errors, warnings);
   if (warnings.length && !input.acknowledgeWarnings) throw new ValidationError([], warnings);
 
   // שמירת הקובץ לפי ה-hash שלו (תוכן לעולם לא נדרס)
   let attachment: string | null = null;
-  if (input.attachment && buf) {
-    const hash = createHash('sha256').update(buf).digest('hex');
+  if (input.attachment && buf && saveAttachment) {
+    const hash = sha256Bytes(buf);
     const file = `${hash}.${ALLOWED_TYPES[input.attachment.type]}`;
-    const dir = join(dataDir, 'attachments');
-    mkdirSync(dir, { recursive: true });
-    if (!existsSync(join(dir, file))) writeFileSync(join(dir, file), buf);
+    saveAttachment(file, buf);
     attachment = canonicalJson({ file, sha256: hash, name: input.attachment.name, type: input.attachment.type });
   }
 

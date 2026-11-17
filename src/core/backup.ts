@@ -16,6 +16,7 @@ import { inTransaction } from '../db/open.ts';
 import { appendAudit, verifyAuditChain } from './audit.ts';
 import { continuityReport } from './reports.ts';
 import { verifyExpenses } from './expenses.ts';
+import { quarterlyBackupStatus } from './backupStatus.ts';
 import { verifyOtherIncome } from './otherIncome.ts';
 import { todayIL } from './util.ts';
 
@@ -115,6 +116,15 @@ export function verifyBackup(dir: string): VerifyResult {
   return { ok: problems.length === 0, problems, docCount, manifest };
 }
 
+/** שמירת קבצים מצורפים לדיסק (גרסת Node). */
+export function fsAttachmentSaver(dataDir: string) {
+  return (file: string, bytes: Uint8Array) => {
+    const dir = join(dataDir, 'attachments');
+    mkdirSync(dir, { recursive: true });
+    if (!existsSync(join(dir, file))) writeFileSync(join(dir, file), bytes);
+  };
+}
+
 /** פתיחת מסד הגיבוי לקריאה בלבד – להפקת פלט מהגיבוי (25(ו)(3)). */
 export function openBackupDb(dir: string): DatabaseSync {
   return new DatabaseSync(join(dir, 'pinkas.db'), { readOnly: true });
@@ -122,24 +132,8 @@ export function openBackupDb(dir: string): DatabaseSync {
 
 /** מצב הגיבוי הרבעוני. */
 export function backupStatus(db: DatabaseSync, today = todayIL()) {
-  const [y, m, d] = today.split('-').map(Number);
-  const qStartMonth = Math.floor((m - 1) / 3) * 3 + 1;
-  const quarterStart = `${y}-${String(qStartMonth).padStart(2, '0')}-01`;
-  const dayInQuarter = Math.round((Date.parse(today) - Date.parse(quarterStart)) / 86_400_000) + 1;
-  const last = (kind: BackupKind) => db.prepare(
-    'SELECT at, path, doc_count, verified_ok FROM backups_log WHERE kind = ? ORDER BY id DESC LIMIT 1').get(kind) as any;
-  const lastExternal = last('external') ?? null;
-  const externalThisQuarter = db.prepare(
-    "SELECT COUNT(*) c FROM backups_log WHERE kind = 'external' AND verified_ok = 1 AND at >= ?").get(quarterStart) as { c: number };
   const target = (db.prepare("SELECT value FROM meta WHERE key = 'backup_target'").get() as { value: string } | undefined)?.value ?? null;
-  const quarterDone = externalThisQuarter.c > 0;
-  return {
-    quarterStart, quarter: Math.floor((m - 1) / 3) + 1, year: y, dayInQuarter, inFirstWeek: dayInQuarter <= 7,
-    quarterDone, lastExternal, lastLocal: last('local') ?? null, target,
-    targetAvailable: target ? existsSync(target) : false,
-    // "due" = עכשיו השבוע הראשון ועדיין לא גובה; "overdue" = עבר השבוע הראשון בלי גיבוי
-    state: quarterDone ? 'ok' : dayInQuarter <= 7 ? 'due' : 'overdue',
-  };
+  return { ...quarterlyBackupStatus(db, today), target, targetAvailable: target ? existsSync(target) : false };
 }
 
 export function setBackupTarget(db: DatabaseSync, target: string): void {
