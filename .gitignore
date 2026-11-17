@@ -1,0 +1,7 @@
+node_modules/
+# נתוני הנהלת החשבונות – לעולם לא נכנסים ל-git. גיבוי נעשה בנפרד (ראו README).
+data/
+backups/
+*.db
+*.db-wal
+*.db-shm
