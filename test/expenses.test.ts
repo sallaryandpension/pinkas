@@ -93,5 +93,21 @@ describe('הוצאות (הוראות 12, 20, 23(א)(2))', () => {
   });
 });
 
+describe('דיווחים שנתיים (עוסק פטור / עסק זעיר)', () => {
+  test('מועדים קרובים: תיאום מס, הצהרת מע"מ, דיווח מקוצר – לפי הסדר', () => {
+    assert.deepEqual(upcomingDeadlines('2026-11-17').map((d) => d.date), ['2026-12-31', '2027-01-31', '2027-03-31']);
+    assert.equal(upcomingDeadlines('2026-02-01')[0].date, '2026-08-31');   // אורכה לשנת 2025
+  });
+  test('סיכום שנתי: מחזור והכנסה חייבת 70% לעסק זעיר', () => {
+    issueDocument(db, { type: 'invoice_receipt', customerId,
+      lines: [{ description: 'ליווי', quantity: 1, unit: 'מפגש', unitPriceAgorot: 100_000 }],
+      payments: [{ method: 'transfer', amountAgorot: 100_000, date: today, transfer: {} }] });
+    const s = annualSummary(db, Number(today.slice(0, 4)));
+    assert.equal(s.turnover, 100_000);
+    assert.equal(s.smallBusinessTaxable, 70_000);
+  });
+});
+
+import { upcomingDeadlines } from '../src/core/books.ts';
 import { mkdirSync } from 'node:fs';
 function require_mkdir(p: string) { mkdirSync(p, { recursive: true }); }

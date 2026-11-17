@@ -65,25 +65,49 @@ export function annualSummary(db: DatabaseSync, year: number) {
     WHERE column_kind = 'asset' AND expense_date BETWEEN ? AND ? ORDER BY expense_date`).all(from, to) as any[];
   const invoiced = db.prepare(`SELECT COALESCE(SUM(CASE WHEN doc_type = 'credit' THEN -total_agorot ELSE total_agorot END), 0) s
     FROM documents WHERE status = 'issued' AND doc_type IN ('invoice', 'invoice_receipt', 'credit') AND issue_date BETWEEN ? AND ?`).get(from, to) as { s: number };
+  const turnover = turnoverBetween(db, from, to);
+  const deemedPct = paramAt(PARAMS.smallBusinessDeemedExpensePercent, from);
   return {
-    year, receipts: totals.receipt, withholding: totals.withholding, invoicedNet: invoiced.s,
+    year, turnover, smallBusinessTaxable: Math.round((turnover * (100 - deemedPct)) / 100), deemedPct,
+    receipts: totals.receipt, withholding: totals.withholding, invoicedNet: invoiced.s,
     expensesRegular: totals.payment, assets: totals.asset, deposits: totals.deposit,
     byCategory, assetList: assets,
     netBeforeAdjustments: totals.receipt - totals.payment,
   };
 }
 
-/** מחזור מצטבר לעומת תקרת עוסק פטור. מחזור = חשבוניות (נטו אחרי זיכויים) + קבלות שאינן מקושרות לחשבונית. */
-export function exemptCeilingStatus(db: DatabaseSync, today = todayIL()) {
-  const year = today.slice(0, 4);
-  const from = `${year}-01-01`;
+/**
+ * מחזור עסקאות בתקופה = חשבוניות (נטו אחרי זיכויים) + קבלות שאינן מקושרות לחשבונית.
+ * משמש להצהרת עוסק פטור (מע"מ, 31.1) ולדיווח המקוצר של בעל עסק זעיר (31.3).
+ */
+export function turnoverBetween(db: DatabaseSync, from: string, to: string): number {
   const invoiced = db.prepare(`SELECT COALESCE(SUM(CASE WHEN doc_type = 'credit' THEN -total_agorot ELSE total_agorot END), 0) s
-    FROM documents WHERE status = 'issued' AND doc_type IN ('invoice', 'invoice_receipt', 'credit') AND issue_date BETWEEN ? AND ?`).get(from, today) as { s: number };
+    FROM documents WHERE status = 'issued' AND doc_type IN ('invoice', 'invoice_receipt', 'credit') AND issue_date BETWEEN ? AND ?`).get(from, to) as { s: number };
   const receiptsNoInvoice = (db.prepare(`SELECT body, total_agorot FROM documents WHERE status = 'issued' AND doc_type = 'receipt'
-    AND issue_date BETWEEN ? AND ?`).all(from, today) as { body: string; total_agorot: number }[])
+    AND issue_date BETWEEN ? AND ?`).all(from, to) as { body: string; total_agorot: number }[])
     .filter((r) => !(JSON.parse(r.body).relatedDocumentIds ?? []).length)
     .reduce((s, r) => s + r.total_agorot, 0);
-  const turnover = invoiced.s + receiptsNoInvoice;
+  return invoiced.s + receiptsNoInvoice;
+}
+
+/** מחזור מצטבר לעומת תקרת עוסק פטור / בעל עסק זעיר. */
+export function exemptCeilingStatus(db: DatabaseSync, today = todayIL()) {
+  const year = today.slice(0, 4);
+  const turnover = turnoverBetween(db, `${year}-01-01`, today);
   const ceiling = paramAt(PARAMS.exemptDealerCeilingAgorot, `${year}-01-01`);
   return { year: Number(year), turnover, ceiling, percent: Math.round((turnover / ceiling) * 1000) / 10 };
+}
+
+/** מועדי הדיווח הקרובים (מקור: חובות_דיווח_שנתיות_עוסק_פטור.md). */
+export function upcomingDeadlines(today = todayIL()): { date: string; title: string; detail: string; url: string }[] {
+  const y = Number(today.slice(0, 4));
+  const list: { date: string; title: string; detail: string; url: string }[] = [];
+  for (const year of [y, y + 1]) {
+    list.push(
+      { date: `${year}-01-31`, title: 'הצהרת עוסק פטור למע"מ', detail: `מחזור העסקאות של ${year - 1}`, url: 'https://www.misim.gov.il/empatur/startPageIntErnet.aspx' },
+      { date: year - 1 === 2025 ? '2026-08-31' : `${year}-03-31`, title: 'דיווח שנתי מקוצר – עסק זעיר', detail: `מחזור ${year - 1} + ניכוי במקור (עם אישורים)`, url: 'https://www.gov.il/he/service/report-and-payment-for-micro-business-owner' },
+      { date: `${year}-12-31`, title: 'תיאום מס מקוון – עסק זעיר', detail: `לשנת ${year} (בלי תיאום → דוח שנתי מלא)`, url: 'https://www.gov.il/he/service/tax-coordination-online' },
+    );
+  }
+  return list.filter((d) => d.date >= today).sort((a, b) => (a.date < b.date ? -1 : 1)).slice(0, 3);
 }

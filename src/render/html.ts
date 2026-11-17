@@ -197,11 +197,18 @@ export function bookBody(rows: BookRowLike[], totals: Omit<BookRowLike, 'date' |
 }
 
 export function annualSummaryBody(s: {
-  year: number; receipts: number; withholding: number; invoicedNet: number; expensesRegular: number; assets: number; deposits: number;
+  year: number; turnover: number; smallBusinessTaxable: number; deemedPct: number; receipts: number; withholding: number; invoicedNet: number; expensesRegular: number; assets: number; deposits: number;
   byCategory: { category: string; total: number }[]; assetList: { expense_date: string; supplier_name: string; description: string; amount_agorot: number }[];
   netBeforeAdjustments: number;
 }): string {
-  return `<table><tbody>
+  return `<h3>נתונים לדיווחים השנתיים</h3><table><tbody>
+    <tr><th>מחזור עסקאות ${s.year}</th><th class="num">${formatShekels(s.turnover)}</th></tr>
+    <tr><td>← להצהרת עוסק פטור למע"מ (עד 31.1.${s.year + 1}) ולדיווח המקוצר של עסק זעיר</td><td></td></tr>
+    <tr><td>הכנסה חייבת בעסק זעיר (${100 - s.deemedPct}% מהמחזור – חישוב מערכת רשות המסים)</td><td class="num">${formatShekels(s.smallBusinessTaxable)}</td></tr>
+    <tr><td>ניכוי במקור לדיווח (יש לצרף אישורי ניכוי מהלקוחות)</td><td class="num">${formatShekels(s.withholding)}</td></tr>
+  </tbody></table>
+  <p class="muted">מחזור = חשבוניות נטו אחרי זיכויים + קבלות שאינן מקושרות לחשבונית. ייתכן שסוגי הכנסה מסוימים מוחרגים/מתווספים למחזור לפי התקנות – לבדוק.</p>
+  <h3>תקבולים והוצאות</h3><table><tbody>
     <tr><td>תקבולים (ברוטו, כולל ניכוי במקור)</td><td class="num">${formatShekels(s.receipts)}</td></tr>
     <tr><td>מזה ניכוי במקור (ניתן לקיזוז מהמס)</td><td class="num">${formatShekels(s.withholding)}</td></tr>
     <tr><td>חשבוניות שהוצאו (נטו אחרי זיכויים)</td><td class="num">${formatShekels(s.invoicedNet)}</td></tr>

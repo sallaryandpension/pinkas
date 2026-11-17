@@ -19,7 +19,7 @@ import { canonicalJson, nowIso, todayIL } from './core/util.ts';
 import { balancesBody, continuityBody, journalBody, renderDocument, renderReport } from './render/html.ts';
 import { htmlToPdf } from './render/pdf.ts';
 import { EXPENSE_CATEGORIES, EXPENSE_DOC_KINDS, EXPENSE_PAYMENT_METHODS, recordExpense, reverseExpense, verifyExpenses, type ExpenseRow } from './core/expenses.ts';
-import { annualSummary, exemptCeilingStatus, receiptsPaymentsBook } from './core/books.ts';
+import { annualSummary, exemptCeilingStatus, receiptsPaymentsBook, upcomingDeadlines } from './core/books.ts';
 import { annualSummaryBody, bookBody } from './render/html.ts';
 import { availableDrives, backupStatus, createBackup, dailyLocalBackup, openBackupDb, setBackupTarget, verifyBackup } from './core/backup.ts';
 
@@ -269,7 +269,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       WHERE status='issued' AND doc_type IN ('receipt','invoice_receipt') AND substr(issue_date,1,4)=?`).get(year) as { s: number };
     const notDelivered = db.prepare(`SELECT COUNT(*) c FROM documents WHERE status='issued' AND doc_type IN ('receipt','invoice_receipt','invoice','credit')
       AND original_produced_at IS NULL`).get() as { c: number };
-    return send(res, 200, { year, incomeAgorot: income.s, originalsPending: notDelivered.c, continuityOk: continuityReport(db).every((s) => s.ok) && verifyExpenses(db).ok, backup: backupStatus(db), ceiling: exemptCeilingStatus(db) });
+    return send(res, 200, { year, incomeAgorot: income.s, originalsPending: notDelivered.c, continuityOk: continuityReport(db).every((s) => s.ok) && verifyExpenses(db).ok, backup: backupStatus(db), ceiling: exemptCeilingStatus(db), deadlines: upcomingDeadlines() });
   }
 
   throw new HttpError(404, 'not found');

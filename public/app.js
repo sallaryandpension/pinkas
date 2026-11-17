@@ -89,7 +89,15 @@ async function dashboard() {
       <button class="btn" data-new="receipt">+ קבלה</button>
       <button class="btn" data-new="order">+ הזמנה</button>
     </div>
-    <div class="card" style="margin-top:16px"><b>תזכורות</b><ul class="muted">
+    <div class="card" style="margin-top:16px"><b>מועדי דיווח קרובים</b>
+      <table style="margin-top:6px"><tbody>${d.deadlines.map((x) => {
+        const days = Math.round((Date.parse(x.date) - Date.parse(today())) / 86400000);
+        return `<tr><td style="white-space:nowrap">${fmtDate(x.date)}</td><td><b>${esc(x.title)}</b> <span class="muted">– ${esc(x.detail)}</span></td>
+          <td>${days <= 14 ? `<span class="tag ${days <= 7 ? 'bad' : 'warn'}">בעוד ${days} ימים</span>` : `<span class="muted">בעוד ${days} ימים</span>`}</td>
+          <td><a href="${esc(x.url)}" target="_blank" rel="noopener">לאתר</a></td></tr>`;
+      }).join('')}</tbody></table>
+      <p class="muted" style="margin:6px 0 0">בהנחה שאתה "בעל עסק זעיר". הפירוט: חובות_דיווח_שנתיות_עוסק_פטור.md</p></div>
+    <div class="card"><b>תזכורות</b><ul class="muted">
       <li>גיבוי בשבוע הראשון של כל רבעון, למקום נפרד בישראל (הוראה 25(ו)).</li>
       <li>לשירות מ-210 ₪ נדרשת חשבונית – בדרך כלל "חשבונית עסקה/קבלה".</li>
       <li>את ה"מקור" מדפיסים פעם אחת, חותמים ביד ושולחים/מוסרים ללקוח. במייל – רק "העתק".</li></ul></div>`;
