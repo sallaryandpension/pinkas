@@ -454,6 +454,7 @@ async function expenses() {
     }
   };
   $('#e-save').onclick = () => save(false);
+  await otherIncomeSection();
   app.querySelectorAll('[data-rev]').forEach((b) => (b.onclick = async () => {
     const e = list.find((x) => x.id === Number(b.dataset.rev));
     const ok = await dialog(`<h3>רישום נגדי להוצאה ${e.entry_number}</h3><p>${esc(e.supplier_name)} – ${shekels(e.amount_agorot)}. הרישום המקורי יישאר, ויתווסף רישום בסכום שלילי.</p>
@@ -461,6 +462,46 @@ async function expenses() {
     if (!ok) return;
     try { await api(`/api/expenses/${e.id}/reverse`, { method: 'POST', body: { reason: $('#rv-reason').value } }); toast('נרשם רישום נגדי'); expenses(); }
     catch (err) { toast(err.message); }
+  }));
+}
+
+// הכנסות שאינן ממסמכים: פיצויים/מענקים (במחזור) ותשלומי ביטוח לאומי (לא במחזור)
+async function otherIncomeSection() {
+  const { kinds, rows } = await api('/api/other-income');
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `<h3>הכנסות נוספות (פיצויים, מענקים, תשלומי ביטוח לאומי)</h3>
+    <p class="muted">פיצוי על נזק עקיף ומענקי רשות המסים <b>נכללים במחזור</b> (תקנות התשפ"ו-2025). דמי מילואים ודמי לידה <b>מביטוח לאומי</b>
+      אינם במחזור – נרשמים כאן רק כדי שיופיעו בשדה הייעודי בדיווח המקוצר. (אם שולמו ע"י מעסיק – זה שכר, לא כאן.)</p>
+    <div class="grid">
+      <label>תאריך<input type="date" id="oi-date" value="${today()}" max="${today()}"></label>
+      <label>סוג<select id="oi-kind">${Object.entries(kinds).map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join('')}</select></label>
+      <label>משלם<input id="oi-payer" value="מס רכוש"></label>
+      <label>סכום ₪<input id="oi-amount" class="num"></label>
+      <label>אסמכתה<input id="oi-ref"></label>
+    </div>
+    <label style="margin-top:10px">תיאור<input id="oi-desc"></label>
+    <div class="actions"><button class="btn" id="oi-save">רשום</button></div>
+    ${rows.length ? `<table style="margin-top:10px"><thead><tr><th class="num">#</th><th>תאריך</th><th>סוג</th><th>משלם</th><th>תיאור</th><th class="num">סכום</th><th>במחזור</th><th></th></tr></thead><tbody>
+      ${rows.map((r) => `<tr ${r.reverses_id || r.reversed ? 'style="color:var(--muted)"' : ''}><td class="num">${r.entry_number}</td><td>${fmtDate(r.income_date)}</td>
+        <td>${esc(kinds[r.kind].name)}</td><td>${esc(r.payer)}</td><td>${esc(r.description)}${r.reversed ? ' <span class="tag bad">בוטל</span>' : ''}</td>
+        <td class="num">${shekels(r.amount_agorot)}</td><td>${kinds[r.kind].inTurnover ? 'כן' : 'לא'}</td>
+        <td>${!r.reverses_id && !r.reversed ? `<button class="btn small danger" data-oirev="${r.id}">רישום נגדי</button>` : ''}</td></tr>`).join('')}
+    </tbody></table>` : ''}`;
+  app.appendChild(card);
+  $('#oi-kind').onchange = (e) => ($('#oi-payer').value = e.target.value.startsWith('nii') ? 'ביטוח לאומי' : e.target.value === 'grant' ? 'רשות המסים' : 'מס רכוש');
+  $('#oi-save').onclick = async () => {
+    try {
+      await api('/api/other-income', { method: 'POST', body: { incomeDate: $('#oi-date').value, kind: $('#oi-kind').value,
+        payer: $('#oi-payer').value, description: $('#oi-desc').value, amountAgorot: toAg($('#oi-amount').value || 0), reference: $('#oi-ref').value || undefined } });
+      toast('נרשם'); expenses();
+    } catch (e) { toast(e.message); }
+  };
+  card.querySelectorAll('[data-oirev]').forEach((b) => (b.onclick = async () => {
+    const ok = await dialog('<h3>רישום נגדי</h3><label>סיבה<input id="oir-reason"></label>', [{ label: 'בצע', value: true, cls: 'danger' }, { label: 'חזור', value: false }]);
+    if (!ok) return;
+    try { await api(`/api/other-income/${b.dataset.oirev}/reverse`, { method: 'POST', body: { reason: $('#oir-reason').value } }); toast('נרשם רישום נגדי'); expenses(); }
+    catch (e) { toast(e.message); }
   }));
 }
 

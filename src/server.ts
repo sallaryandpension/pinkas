@@ -19,6 +19,7 @@ import { canonicalJson, nowIso, todayIL } from './core/util.ts';
 import { balancesBody, continuityBody, journalBody, renderDocument, renderReport } from './render/html.ts';
 import { htmlToPdf } from './render/pdf.ts';
 import { EXPENSE_CATEGORIES, EXPENSE_DOC_KINDS, EXPENSE_PAYMENT_METHODS, recordExpense, reverseExpense, verifyExpenses, type ExpenseRow } from './core/expenses.ts';
+import { OTHER_INCOME_KINDS, recordOtherIncome, reverseOtherIncome, verifyOtherIncome } from './core/otherIncome.ts';
 import { annualSummary, exemptCeilingStatus, receiptsPaymentsBook, upcomingDeadlines } from './core/books.ts';
 import { annualSummaryBody, bookBody } from './render/html.ts';
 import { availableDrives, backupStatus, createBackup, dailyLocalBackup, openBackupDb, setBackupTarget, verifyBackup } from './core/backup.ts';
@@ -213,6 +214,16 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (!/^[0-9a-f]{64}\.\w+$/.test(a.file)) throw new HttpError(400, 'bad file');
     return send(res, 200, readFileSync(join(DATA_DIR, 'attachments', a.file)), a.type);
   }
+  // ---- הכנסות שאינן ממסמכים ----
+  if (p === '/api/other-income' && m === 'GET') {
+    const rows = db.prepare('SELECT * FROM other_income ORDER BY entry_number DESC').all() as any[];
+    const reversed = new Set(rows.filter((r) => r.reverses_id).map((r) => r.reverses_id));
+    return send(res, 200, { kinds: OTHER_INCOME_KINDS, rows: rows.map((r) => ({ ...r, reversed: reversed.has(r.id) })) });
+  }
+  if (p === '/api/other-income' && m === 'POST') return send(res, 200, recordOtherIncome(db, await readJson(req)));
+  mm = p.match(/^\/api\/other-income\/(\d+)\/reverse$/);
+  if (mm && m === 'POST') return send(res, 200, reverseOtherIncome(db, Number(mm[1]), (await readJson(req)).reason));
+
   if (p === '/api/reports/book' && m === 'GET') {
     const from = url.searchParams.get('from') ?? `${todayIL().slice(0, 4)}-01-01`;
     const to = url.searchParams.get('to') ?? todayIL();
@@ -269,7 +280,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       WHERE status='issued' AND doc_type IN ('receipt','invoice_receipt') AND substr(issue_date,1,4)=?`).get(year) as { s: number };
     const notDelivered = db.prepare(`SELECT COUNT(*) c FROM documents WHERE status='issued' AND doc_type IN ('receipt','invoice_receipt','invoice','credit')
       AND original_produced_at IS NULL`).get() as { c: number };
-    return send(res, 200, { year, incomeAgorot: income.s, originalsPending: notDelivered.c, continuityOk: continuityReport(db).every((s) => s.ok) && verifyExpenses(db).ok, backup: backupStatus(db), ceiling: exemptCeilingStatus(db), deadlines: upcomingDeadlines() });
+    return send(res, 200, { year, incomeAgorot: income.s, originalsPending: notDelivered.c, continuityOk: continuityReport(db).every((s) => s.ok) && verifyExpenses(db).ok && verifyOtherIncome(db).ok, backup: backupStatus(db), ceiling: exemptCeilingStatus(db), deadlines: upcomingDeadlines() });
   }
 
   throw new HttpError(404, 'not found');

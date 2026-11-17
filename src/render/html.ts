@@ -197,7 +197,8 @@ export function bookBody(rows: BookRowLike[], totals: Omit<BookRowLike, 'date' |
 }
 
 export function annualSummaryBody(s: {
-  year: number; turnover: number; smallBusinessTaxable: number; deemedPct: number; receipts: number; withholding: number; invoicedNet: number; expensesRegular: number; assets: number; deposits: number;
+  year: number; turnover: number; smallBusinessTaxable: number; deemedPct: number;
+  compensationInTurnover: number; niiReserve: number; niiMaternity: number; receipts: number; withholding: number; invoicedNet: number; expensesRegular: number; assets: number; deposits: number;
   byCategory: { category: string; total: number }[]; assetList: { expense_date: string; supplier_name: string; description: string; amount_agorot: number }[];
   netBeforeAdjustments: number;
 }): string {
@@ -206,8 +207,11 @@ export function annualSummaryBody(s: {
     <tr><td>← להצהרת עוסק פטור למע"מ (עד 31.1.${s.year + 1}) ולדיווח המקוצר של עסק זעיר</td><td></td></tr>
     <tr><td>הכנסה חייבת בעסק זעיר (${100 - s.deemedPct}% מהמחזור – חישוב מערכת רשות המסים)</td><td class="num">${formatShekels(s.smallBusinessTaxable)}</td></tr>
     <tr><td>ניכוי במקור לדיווח (יש לצרף אישורי ניכוי מהלקוחות)</td><td class="num">${formatShekels(s.withholding)}</td></tr>
+    ${s.niiReserve ? `<tr><td>דמי מילואים מביטוח לאומי – לשדה הייעודי בדיווח המקוצר (לא במחזור)</td><td class="num">${formatShekels(s.niiReserve)}</td></tr>` : ''}
+    ${s.niiMaternity ? `<tr><td>דמי לידה מביטוח לאומי – לשדה הייעודי בדיווח המקוצר (לא במחזור)</td><td class="num">${formatShekels(s.niiMaternity)}</td></tr>` : ''}
   </tbody></table>
-  <p class="muted">מחזור = חשבוניות נטו אחרי זיכויים + קבלות שאינן מקושרות לחשבונית. ייתכן שסוגי הכנסה מסוימים מוחרגים/מתווספים למחזור לפי התקנות – לבדוק.</p>
+  <p class="muted">מחזור = חשבוניות נטו אחרי זיכויים + קבלות שאינן מקושרות לחשבונית + פיצויים בעד נזק עקיף ומענקי רשות המסים
+    (${formatShekels(s.compensationInTurnover)}; תקנות מס הכנסה התשפ"ו-2025 לפי ס' 87ז). דמי מילואים ודמי לידה מביטוח לאומי אינם חלק מהמחזור.</p>
   <h3>תקבולים והוצאות</h3><table><tbody>
     <tr><td>תקבולים (ברוטו, כולל ניכוי במקור)</td><td class="num">${formatShekels(s.receipts)}</td></tr>
     <tr><td>מזה ניכוי במקור (ניתן לקיזוז מהמס)</td><td class="num">${formatShekels(s.withholding)}</td></tr>

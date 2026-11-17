@@ -16,6 +16,7 @@ import { inTransaction } from '../db/open.ts';
 import { appendAudit, verifyAuditChain } from './audit.ts';
 import { continuityReport } from './reports.ts';
 import { verifyExpenses } from './expenses.ts';
+import { verifyOtherIncome } from './otherIncome.ts';
 import { todayIL } from './util.ts';
 
 export type BackupKind = 'external' | 'local';
@@ -106,6 +107,8 @@ export function verifyBackup(dir: string): VerifyResult {
       if (!verifyAuditChain(bdb).ok) problems.push('יומן האירועים בגיבוי פגום');
       const hasExpenses = bdb.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'expenses'").get();
       if (hasExpenses && !verifyExpenses(bdb).ok) problems.push('רישומי ההוצאות בגיבוי פגומים');
+      const hasOther = bdb.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'other_income'").get();
+      if (hasOther && !verifyOtherIncome(bdb).ok) problems.push('רישומי ההכנסות הנוספות בגיבוי פגומים');
       if (docCount !== manifest.docCount) problems.push(`מספר המסמכים (${docCount}) שונה מהרשום ב-manifest (${manifest.docCount})`);
     } finally { bdb.close(); }
   }

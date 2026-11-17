@@ -224,6 +224,41 @@ BEGIN
   SELECT RAISE(ABORT, 'FORBIDDEN: recorded expenses cannot be deleted – record a reversing entry');
 END;
 
+-- ★ הכנסות שאינן ממסמכים שהעסק הפיק: פיצויים, מענקים, תשלומי ביטוח לאומי. append-only.
+--   kind: compensation / grant  → נכללים במחזור העסק הזעיר (תקנות התשפ"ו-2025, ס' 87ז) ובספר התקבולים.
+--         nii_reserve / nii_maternity → לא במחזור; שדה נפרד בדיווח המקוצר.
+CREATE TABLE IF NOT EXISTS other_income (
+  id            INTEGER PRIMARY KEY,
+  entry_number  INTEGER NOT NULL UNIQUE,
+  recorded_at   TEXT    NOT NULL,
+  income_date   TEXT    NOT NULL,
+  kind          TEXT    NOT NULL CHECK (kind IN ('compensation', 'grant', 'nii_reserve', 'nii_maternity')),
+  payer         TEXT    NOT NULL,
+  description   TEXT    NOT NULL,
+  amount_agorot INTEGER NOT NULL,
+  reference     TEXT,
+  reverses_id   INTEGER REFERENCES other_income(id),
+  reverse_reason TEXT,
+  content_hash  TEXT    NOT NULL,
+  prev_hash     TEXT
+);
+CREATE TRIGGER IF NOT EXISTS other_income_sequence
+BEFORE INSERT ON other_income
+WHEN NEW.entry_number IS NOT (SELECT COALESCE(MAX(entry_number), 0) + 1 FROM other_income)
+BEGIN
+  SELECT RAISE(ABORT, 'FORBIDDEN: entry number must be the next number');
+END;
+CREATE TRIGGER IF NOT EXISTS other_income_no_update
+BEFORE UPDATE ON other_income
+BEGIN
+  SELECT RAISE(ABORT, 'FORBIDDEN: recorded income cannot be edited – record a reversing entry');
+END;
+CREATE TRIGGER IF NOT EXISTS other_income_no_delete
+BEFORE DELETE ON other_income
+BEGIN
+  SELECT RAISE(ABORT, 'FORBIDDEN: recorded income cannot be deleted – record a reversing entry');
+END;
+
 -- ★ יומן גיבויים – append-only (הוראה 25(ו)(2): גיבוי רבעוני, במקום נפרד בישראל).
 CREATE TABLE IF NOT EXISTS backups_log (
   id          INTEGER PRIMARY KEY,

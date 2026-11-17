@@ -108,6 +108,25 @@ describe('דיווחים שנתיים (עוסק פטור / עסק זעיר)', ()
   });
 });
 
+describe('הכנסות נוספות (תקנות התשפ"ו-2025)', () => {
+  test('פיצוי נזק עקיף נכנס למחזור ולספר; דמי לידה/מילואים לא', () => {
+    recordOtherIncome(db, { incomeDate: today, kind: 'compensation', payer: 'מס רכוש', description: 'פיצוי מלחמה', amountAgorot: 50_000 });
+    recordOtherIncome(db, { incomeDate: today, kind: 'nii_maternity', payer: 'ביטוח לאומי', description: 'דמי לידה', amountAgorot: 900_000 });
+    const s = annualSummary(db, Number(today.slice(0, 4)));
+    assert.equal(s.turnover, 50_000);
+    assert.equal(s.niiMaternity, 900_000);
+    assert.equal(receiptsPaymentsBook(db, '2000-01-01', today).totals.receipt, 50_000);
+  });
+  test('append-only + רישום נגדי מאפס מהמחזור', () => {
+    const r = recordOtherIncome(db, { incomeDate: today, kind: 'grant', payer: 'רשות המסים', description: 'מענק', amountAgorot: 20_000 });
+    assert.throws(() => db.exec('DELETE FROM other_income'), /FORBIDDEN/);
+    reverseOtherIncome(db, r.id, 'נרשם בטעות');
+    assert.equal(annualSummary(db, Number(today.slice(0, 4))).turnover, 0);
+    assert.equal(verifyOtherIncome(db).ok, true);
+  });
+});
+
+import { recordOtherIncome, reverseOtherIncome, verifyOtherIncome } from '../src/core/otherIncome.ts';
 import { upcomingDeadlines } from '../src/core/books.ts';
 import { mkdirSync } from 'node:fs';
 function require_mkdir(p: string) { mkdirSync(p, { recursive: true }); }

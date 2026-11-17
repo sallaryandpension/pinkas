@@ -6,6 +6,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { DOC_TYPE_NAMES, type DocumentRow } from './documents.ts';
 import { EXPENSE_DOC_KINDS, type ExpenseRow } from './expenses.ts';
 import { PARAMS, paramAt } from './params.ts';
+import { OTHER_INCOME_KINDS, otherIncomeTotals, type OtherIncomeRow } from './otherIncome.ts';
 import { todayIL } from './util.ts';
 
 export type BookRow = {
@@ -18,7 +19,7 @@ export type BookRow = {
   payment: number;          // תשלום שוטף
   asset: number;            // רכישת נכסים
   deposit: number;          // פיקדונות
-  source: 'document' | 'expense';
+  source: 'document' | 'expense' | 'other_income';
   sourceId: number;
 };
 
@@ -48,6 +49,14 @@ export function receiptsPaymentsBook(db: DatabaseSync, from: string, to: string)
       deposit: e.column_kind === 'deposit' ? e.amount_agorot : 0,
       source: 'expense' as const, sourceId: e.id,
     })),
+    // פיצויים ומענקים הם תקבולי העסק; תשלומי ביטוח לאומי (מילואים/לידה) אינם תקבולי העסק ולא נכנסים לספר
+    ...(db.prepare("SELECT * FROM other_income WHERE kind IN ('compensation', 'grant') AND income_date BETWEEN ? AND ? ORDER BY income_date, entry_number")
+      .all(from, to) as OtherIncomeRow[]).map((o) => ({
+      date: o.income_date, ref: `הכנסה נוספת ${o.entry_number}${o.reference ? ` · ${o.reference}` : ''}`, name: o.payer,
+      description: `${OTHER_INCOME_KINDS[o.kind].name}: ${o.description}`,
+      receipt: o.amount_agorot, withholding: 0, payment: 0, asset: 0, deposit: 0,
+      source: 'other_income' as const, sourceId: o.id,
+    })),
   ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.source === b.source ? a.sourceId - b.sourceId : a.source === 'document' ? -1 : 1));
 
   const sum = (k: 'receipt' | 'withholding' | 'payment' | 'asset' | 'deposit') => rows.reduce((s, r) => s + r[k], 0);
@@ -67,8 +76,10 @@ export function annualSummary(db: DatabaseSync, year: number) {
     FROM documents WHERE status = 'issued' AND doc_type IN ('invoice', 'invoice_receipt', 'credit') AND issue_date BETWEEN ? AND ?`).get(from, to) as { s: number };
   const turnover = turnoverBetween(db, from, to);
   const deemedPct = paramAt(PARAMS.smallBusinessDeemedExpensePercent, from);
+  const other = otherIncomeTotals(db, from, to);
   return {
     year, turnover, smallBusinessTaxable: Math.round((turnover * (100 - deemedPct)) / 100), deemedPct,
+    compensationInTurnover: other.inTurnover, niiReserve: other.niiReserve, niiMaternity: other.niiMaternity,
     receipts: totals.receipt, withholding: totals.withholding, invoicedNet: invoiced.s,
     expensesRegular: totals.payment, assets: totals.asset, deposits: totals.deposit,
     byCategory, assetList: assets,
@@ -87,7 +98,7 @@ export function turnoverBetween(db: DatabaseSync, from: string, to: string): num
     AND issue_date BETWEEN ? AND ?`).all(from, to) as { body: string; total_agorot: number }[])
     .filter((r) => !(JSON.parse(r.body).relatedDocumentIds ?? []).length)
     .reduce((s, r) => s + r.total_agorot, 0);
-  return invoiced.s + receiptsNoInvoice;
+  return invoiced.s + receiptsNoInvoice + otherIncomeTotals(db, from, to).inTurnover;   // + פיצויים/מענקים (87ז)
 }
 
 /** מחזור מצטבר לעומת תקרת עוסק פטור / בעל עסק זעיר. */
