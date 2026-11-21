@@ -48,7 +48,9 @@ export function createBackup(db: DatabaseSync, opts: { dataDir: string; targetDi
   { dir: string; verify: VerifyResult } {
   const target = resolve(opts.targetDir);
   if (!existsSync(target)) throw new Error(`תיקיית היעד לא קיימת: ${target}`);
-  if (opts.kind === 'external' && resolve(opts.dataDir).slice(0, 2).toLowerCase() === target.slice(0, 2).toLowerCase())
+  // "מקום נפרד" = התקן אחסון אחר: אותו כונן (Windows) או אותה מערכת קבצים (לינוקס, לפי מזהה ההתקן) נחסמים
+  const sameDrive = resolve(opts.dataDir).slice(0, 2).toLowerCase() === target.slice(0, 2).toLowerCase() && /^[a-z]:/i.test(target);
+  if (opts.kind === 'external' && (sameDrive || statSync(resolve(opts.dataDir)).dev === statSync(target).dev))
     throw new Error('גיבוי רבעוני חייב להיות במקום נפרד (הוראה 25(ו)(2)) – בחר כונן אחר, למשל כונן חיצוני');
 
   let dir = join(target, `pinkas-backup-${stampIL()}`);
@@ -159,6 +161,9 @@ export function dailyLocalBackup(db: DatabaseSync, dataDir: string): string | nu
 }
 
 /** כוננים זמינים (להצעה בממשק). */
+/** כוננים חיצוניים מוצעים. לינוקס (השרת): כונן הגיבוי המוצפן שהוגדר ע"י deploy/setup-usb-backup.sh. */
+export const LINUX_BACKUP_MOUNT = '/mnt/pinkas-backup/';
 export function availableDrives(): string[] {
+  if (process.platform !== 'win32') return existsSync(join(LINUX_BACKUP_MOUNT, 'PinkasBackup')) ? [LINUX_BACKUP_MOUNT] : [];
   return 'DEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((l) => `${l}:\\`).filter((p) => { try { return existsSync(p); } catch { return false; } });
 }
