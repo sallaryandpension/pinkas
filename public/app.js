@@ -20,6 +20,7 @@ async function api(path, opts = {}) {
     headers: { 'Content-Type': 'application/json', 'X-Pinkas': '1' },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
+  if (res.status === 401) { location.href = '/login.html'; return new Promise(() => {}); }   // הכניסה פגה
   const type = res.headers.get('content-type') ?? '';
   if (type.includes('application/pdf')) {
     if (!res.ok) throw new Error('יצירת PDF נכשלה');
@@ -67,7 +68,16 @@ async function go(view, arg) {
   app.innerHTML = '<p class="muted">טוען…</p>';
   try { await views[view](arg); } catch (e) { app.innerHTML = errorBox(e); }
 }
-document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click', () => go(b.dataset.view)));
+document.querySelectorAll('nav button[data-view]').forEach((b) => b.addEventListener('click', () => go(b.dataset.view)));
+// יציאה (גרסת השרת בלבד): השרת מוחק את הכניסה ומנקה את נתוני האתר בדפדפן (Clear-Site-Data)
+if (!LOCAL()) {
+  const lo = $('#logout');
+  lo.hidden = false;
+  lo.onclick = async () => {
+    await fetch('/api/auth/logout', { method: 'POST', headers: { 'X-Pinkas': '1' } }).catch(() => {});
+    location.replace('/login.html');
+  };
+}
 
 // ---------------------------------------------------------------- לוח
 async function dashboard() {

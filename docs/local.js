@@ -1093,6 +1093,15 @@ END;
   };
   var ALLOWED_TYPES = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic" };
   var MAX_ATTACHMENT = 10 * 1024 * 1024;
+  function sniffAttachmentType(b) {
+    const ascii = (from, to) => String.fromCharCode(...b.subarray(from, to));
+    if (b.length >= 5 && ascii(0, 5) === "%PDF-") return "application/pdf";
+    if (b.length >= 3 && b[0] === 255 && b[1] === 216 && b[2] === 255) return "image/jpeg";
+    if (b.length >= 8 && [137, 80, 78, 71, 13, 10, 26, 10].every((v, i) => b[i] === v)) return "image/png";
+    if (b.length >= 12 && ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return "image/webp";
+    if (b.length >= 12 && ascii(4, 8) === "ftyp" && ["heic", "heix", "heim", "heis", "hevc", "hevx", "mif1", "msf1"].includes(ascii(8, 12))) return "image/heic";
+    return null;
+  }
   function recordingDeadline(expenseDate) {
     const [y, m] = expenseDate.split("-").map(Number);
     const endOfMonth = new Date(Date.UTC(y, m, 0));
@@ -1147,24 +1156,28 @@ END;
     if (isIsoDate(input.expenseDate) && todayIL() > recordingDeadline(input.expenseDate))
       warnings.push(`רישום באיחור: הוצאה מ-${input.expenseDate} הייתה צריכה להירשם עד ${recordingDeadline(input.expenseDate)} (הוראה 20)`);
     let buf = null;
+    let attType = null;
     if (input.attachment) {
-      if (!(input.attachment.type in ALLOWED_TYPES)) errors.push("סוג קובץ לא נתמך (PDF / JPG / PNG / WEBP / HEIC)");
       try {
         buf = base64ToBytes(input.attachment.base64 ?? "");
       } catch {
         buf = new Uint8Array(0);
       }
       if (buf.length === 0 || buf.length > MAX_ATTACHMENT) errors.push("קובץ מצורף ריק או גדול מ-10MB");
+      else {
+        attType = sniffAttachmentType(buf);
+        if (!attType) errors.push("סוג קובץ לא נתמך: רק PDF / JPG / PNG / WEBP / HEIC (נבדק לפי תוכן הקובץ)");
+      }
       if (!saveAttachment) errors.push("שמירת קבצים מצורפים אינה זמינה");
     }
     if (errors.length) throw new ValidationError(errors, warnings);
     if (warnings.length && !input.acknowledgeWarnings) throw new ValidationError([], warnings);
     let attachment = null;
-    if (input.attachment && buf && saveAttachment) {
+    if (input.attachment && buf && attType && saveAttachment) {
       const hash = sha256Bytes(buf);
-      const file = `${hash}.${ALLOWED_TYPES[input.attachment.type]}`;
+      const file = `${hash}.${ALLOWED_TYPES[attType]}`;
       saveAttachment(file, buf);
-      attachment = canonicalJson({ file, sha256: hash, name: input.attachment.name, type: input.attachment.type });
+      attachment = canonicalJson({ file, sha256: hash, name: String(input.attachment.name ?? "").slice(0, 200), type: attType });
     }
     return inTransaction(db2, () => {
       const expense = insertExpense(db2, {

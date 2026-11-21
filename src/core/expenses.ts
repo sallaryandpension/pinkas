@@ -54,6 +54,20 @@ export type ExpenseRow = {
 const ALLOWED_TYPES: Record<string, string> = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic' };
 const MAX_ATTACHMENT = 10 * 1024 * 1024;
 
+/**
+ * סוג הקובץ לפי התוכן שלו (חתימת הבתים בתחילתו), לא לפי מה שהדפדפן הצהיר.
+ * כך קובץ HTML/SVG/JS שהוסווה כקבלה נדחה, ולא יכול לרוץ כקוד כשפותחים אותו.
+ */
+export function sniffAttachmentType(b: Uint8Array): string | null {
+  const ascii = (from: number, to: number) => String.fromCharCode(...b.subarray(from, to));
+  if (b.length >= 5 && ascii(0, 5) === '%PDF-') return 'application/pdf';
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (b.length >= 8 && [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((v, i) => b[i] === v)) return 'image/png';
+  if (b.length >= 12 && ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return 'image/webp';
+  if (b.length >= 12 && ascii(4, 8) === 'ftyp' && ['heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'mif1', 'msf1'].includes(ascii(8, 12))) return 'image/heic';
+  return null;
+}
+
 /** תאריך אחרון לרישום לפי הוראה 20: 30 יום מתום החודש של ההוצאה. */
 export function recordingDeadline(expenseDate: string): string {
   const [y, m] = expenseDate.split('-').map(Number);
@@ -98,10 +112,14 @@ export function recordExpense(db: DatabaseSync, input: ExpenseInput, saveAttachm
   if (isIsoDate(input.expenseDate) && todayIL() > recordingDeadline(input.expenseDate))
     warnings.push(`רישום באיחור: הוצאה מ-${input.expenseDate} הייתה צריכה להירשם עד ${recordingDeadline(input.expenseDate)} (הוראה 20)`);
   let buf: Uint8Array | null = null;
+  let attType: string | null = null;
   if (input.attachment) {
-    if (!(input.attachment.type in ALLOWED_TYPES)) errors.push('סוג קובץ לא נתמך (PDF / JPG / PNG / WEBP / HEIC)');
     try { buf = base64ToBytes(input.attachment.base64 ?? ''); } catch { buf = new Uint8Array(0); }
     if (buf.length === 0 || buf.length > MAX_ATTACHMENT) errors.push('קובץ מצורף ריק או גדול מ-10MB');
+    else {
+      attType = sniffAttachmentType(buf);
+      if (!attType) errors.push('סוג קובץ לא נתמך: רק PDF / JPG / PNG / WEBP / HEIC (נבדק לפי תוכן הקובץ)');
+    }
     if (!saveAttachment) errors.push('שמירת קבצים מצורפים אינה זמינה');
   }
   if (errors.length) throw new ValidationError(errors, warnings);
@@ -109,11 +127,11 @@ export function recordExpense(db: DatabaseSync, input: ExpenseInput, saveAttachm
 
   // שמירת הקובץ לפי ה-hash שלו (תוכן לעולם לא נדרס)
   let attachment: string | null = null;
-  if (input.attachment && buf && saveAttachment) {
+  if (input.attachment && buf && attType && saveAttachment) {
     const hash = sha256Bytes(buf);
-    const file = `${hash}.${ALLOWED_TYPES[input.attachment.type]}`;
+    const file = `${hash}.${ALLOWED_TYPES[attType]}`;
     saveAttachment(file, buf);
-    attachment = canonicalJson({ file, sha256: hash, name: input.attachment.name, type: input.attachment.type });
+    attachment = canonicalJson({ file, sha256: hash, name: String(input.attachment.name ?? '').slice(0, 200), type: attType });
   }
 
   return inTransaction(db, () => {

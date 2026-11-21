@@ -70,6 +70,19 @@ describe('הוצאות (הוראות 12, 20, 23(א)(2))', () => {
     assert.ok(readdirSync(join(bk, 'attachments')).includes(a.file));
   });
 
+  test('קובץ מצורף נבדק לפי התוכן: HTML/SVG שמוצהר כ-PDF נדחה; סוג נקבע לפי התוכן', () => {
+    const html = Buffer.from('<html><script>alert(1)</script></html>').toString('base64');
+    assert.throws(() => rec(exp({ attachment: { name: 'r.pdf', type: 'application/pdf', base64: html } })),
+      (e: any) => e.errors?.some((x: string) => x.includes('סוג קובץ')));
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>').toString('base64');
+    assert.throws(() => rec(exp({ attachment: { name: 'x.png', type: 'image/png', base64: svg } })));
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]).toString('base64');
+    const { expense } = rec(exp({ attachment: { name: 'r.bin', type: 'text/html', base64: png } }));
+    const a = JSON.parse(expense.attachment!);
+    assert.equal(a.type, 'image/png');
+    assert.match(a.file, /\.png$/);
+  });
+
   test('ספר תקבולים ותשלומים: תקבולים מהקבלות, תשלומים / נכסים בטורים נפרדים', () => {
     issueDocument(db, { type: 'invoice_receipt', customerId,
       lines: [{ description: 'ליווי', quantity: 2, unit: 'מפגש', unitPriceAgorot: 40_000 }],

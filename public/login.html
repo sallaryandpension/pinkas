@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>פנקס – כניסה</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header><div class="brand">פנקס <small>כניסה</small></div></header>
+  <main class="login">
+    <section id="login" class="card" hidden>
+      <h2>כניסה</h2>
+      <form id="login-form">
+        <label>סיסמה<input id="l-pw" type="password" autocomplete="current-password" required></label>
+        <label>קוד מהאפליקציה (6 ספרות)<input id="l-code" inputmode="numeric" autocomplete="one-time-code" pattern="\d{6}" maxlength="6" required class="ltr"></label>
+        <button class="btn primary" type="submit">כניסה</button>
+      </form>
+    </section>
+
+    <section id="setup1" class="card" hidden>
+      <h2>הגדרת כניסה – שלב 1 מתוך 2</h2>
+      <p>הכניסה לפנקס עוד לא הוגדרה. קוד ההגדרה נמצא בשרת, בקובץ <code class="ltr">setup-token.txt</code> שבתיקיית הנתונים
+        (בשרת: <code class="ltr">sudo cat /var/lib/pinkas/setup-token.txt</code>).</p>
+      <form id="setup1-form">
+        <label>קוד הגדרה<input id="s-token" required class="ltr" autocomplete="off"></label>
+        <label>סיסמה חדשה (12 תווים לפחות)<input id="s-pw" type="password" minlength="12" autocomplete="new-password" required></label>
+        <label>הסיסמה שוב<input id="s-pw2" type="password" minlength="12" autocomplete="new-password" required></label>
+        <button class="btn primary" type="submit">המשך</button>
+      </form>
+    </section>
+
+    <section id="setup2" class="card" hidden>
+      <h2>הגדרת כניסה – שלב 2 מתוך 2: קוד משתנה</h2>
+      <ol>
+        <li>בטלפון, פתח אפליקציית קודים (Google Authenticator, Microsoft Authenticator וכדומה).</li>
+        <li>הוסף חשבון ← "הזנת מפתח הגדרה" (Enter a setup key). שם: <b>Pinkas</b>. סוג: לפי זמן (Time based).</li>
+        <li>הקלד את המפתח:</li>
+      </ol>
+      <p class="secret ltr" id="s-secret"></p>
+      <p>בטלפון שבו פתוח הדף הזה אפשר גם ללחוץ: <a id="s-uri" class="ltr">פתח באפליקציית הקודים</a></p>
+      <p><b>שמור את המפתח במקום בטוח</b> (למשל על נייר, יחד עם מפתח החירום של ההצפנה). בלעדיו, אם הטלפון יאבד, צריך להגדיר את הכניסה מחדש מהשרת.</p>
+      <form id="setup2-form">
+        <label>הקוד שמופיע עכשיו באפליקציה<input id="s-code" inputmode="numeric" pattern="\d{6}" maxlength="6" required class="ltr" autocomplete="one-time-code"></label>
+        <button class="btn primary" type="submit">סיום</button>
+      </form>
+    </section>
+    <div id="msg" class="msg" hidden></div>
+  </main>
+  <script src="login.js" type="module"></script>
+</body>
+</html>
