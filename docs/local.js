@@ -1719,7 +1719,7 @@ END;
   };
 
   // web/store.ts
-  var DB_NAME = "pinkas";
+  var DB_NAME = false ? "pinkas-demo" : "pinkas";
   var STORES = ["kv", "attachments", "outputs", "snapshots"];
   var dbp = null;
   function idb() {
@@ -1750,6 +1750,7 @@ END;
   };
 
   // web/main.ts
+  var demoMark = (html) => false ? html.includes("</body>") ? html.replace("</body>", `${DEMO_MARK}</body>`) : html + DEMO_MARK : html;
   var SQL;
   var db;
   var lastSavedChanges = 0;
@@ -1782,6 +1783,7 @@ END;
     SQL = await initSqlJs({ locateFile: (f) => f });
     const bytes = await store.get("kv", "db");
     db = await openDatabase(bytes ?? void 0);
+    if (false) seedDemo(db);
     await persist(true);
     try {
       await navigator.storage?.persist?.();
@@ -1825,8 +1827,11 @@ END;
     }
   }
   async function finish(result) {
-    if ("json" in result) return result.json;
-    if ("html" in result) return { html: result.html };
+    if ("json" in result) {
+      const j = result.json;
+      return false ? { ...j, html: demoMark(j.html) } : j;
+    }
+    if ("html" in result) return { html: demoMark(result.html) };
     const label = result.printable.finalize?.().label;
     if (label === "מקור") pendingWrites.push(store.put("outputs", result.printable.filename.replace(/\.pdf$/, ".html"), result.printable.html));
     return { printable: { html: result.printable.html, filename: result.printable.filename } };
@@ -1852,7 +1857,7 @@ END;
         }, 1500);
       }, 100);
     };
-    frame.srcdoc = html;
+    frame.srcdoc = demoMark(html);
   }
   function showHtmlInWindow(win, html) {
     if (!win) {
@@ -2013,6 +2018,19 @@ END;
     reportFromBackupFile,
     restoreFromFile
   };
+  if (false) {
+    const bar = document.createElement("div");
+    bar.style.cssText = "background:#fff3cd;color:#664d03;border-bottom:1px solid #ffe69c;padding:8px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:14px";
+    bar.innerHTML = "<b>גרסת דמו</b><span>כל הנתונים בדויים ונשמרים רק בדפדפן הזה. אפשר לנסות הכול בחופשיות – זה לא משפיע על הספרים האמיתיים.</span>";
+    const btn = document.createElement("button");
+    btn.className = "btn small";
+    btn.textContent = "איפוס הדמו (חזרה לנתוני הדוגמה)";
+    btn.onclick = () => {
+      if (confirm("למחוק את כל מה ששינית בדמו ולחזור לנתוני הדוגמה?")) resetDemo();
+    };
+    bar.appendChild(btn);
+    document.body.prepend(bar);
+  }
   window.pinkasReady = init().catch((e) => {
     document.body.innerHTML = `<div style="padding:24px;font-family:Arial;direction:rtl"><h2>פנקס לא הצליח לעלות</h2><p>${String(e?.message ?? e)}</p>
     <p>ודא שהדפדפן מעודכן (Chrome / Edge) ושלא נחסם אחסון מקומי לאתר.</p></div>`;

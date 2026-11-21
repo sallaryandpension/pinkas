@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>פנקס – דמו</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">פנקס <small>דמו · נתונים לדוגמה</small></div>
+    <nav>
+      <button data-view="dashboard">לוח</button>
+      <button data-view="new">מסמך חדש</button>
+      <button data-view="documents">מסמכים</button>
+      <button data-view="expenses">הוצאות</button>
+      <button data-view="customers">לקוחות</button>
+      <button data-view="reports">דוחות</button>
+      <button data-view="backup">גיבוי</button>
+      <button data-view="settings">הגדרות</button>
+      <button id="logout" hidden>יציאה</button>
+    </nav>
+  </header>
+  <main id="app"></main>
+  <div id="toast" hidden></div>
+  <dialog id="dialog"><form method="dialog" id="dialog-form"></form></dialog>
+  <script src="sql-wasm.js"></script>
+  <script src="local.js"></script>
+  <script src="app.js" type="module"></script>
+</body>
+</html>

@@ -14,7 +14,22 @@ import { inTransaction } from '../src/db/tx.ts';
 import { nowIso, sha256Bytes, todayIL, base64ToBytes } from '../src/core/util.ts';
 import { continuityBody, journalBody, renderReport } from '../src/render/html.ts';
 import { BrowserDatabase } from './sqlite.ts';
-import { store } from './store.ts';
+import { store, DB_NAME } from './store.ts';
+import { seedDemo } from './demoSeed.ts';
+
+declare const __DEMO__: boolean;
+
+/** בדמו: סימן מים "דמו" על כל מסמך/דוח, כדי שאף הדפסה לא תיראה כמסמך אמיתי. */
+const DEMO_MARK = '<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:9999">'
+  + '<div style="transform:rotate(-30deg);font:700 90px Arial,sans-serif;color:rgba(200,0,0,.15);white-space:nowrap">דמו – לא מסמך אמיתי</div></div>';
+const demoMark = (html: string) => (__DEMO__ ? (html.includes('</body>') ? html.replace('</body>', `${DEMO_MARK}</body>`) : html + DEMO_MARK) : html);
+
+/** איפוס הדמו: מחיקת מסד הדמו בדפדפן הזה וטעינה מחדש עם נתוני הדוגמה. */
+function resetDemo() {
+  if (!__DEMO__) return;
+  const r = indexedDB.deleteDatabase(DB_NAME);
+  r.onsuccess = r.onerror = r.onblocked = () => location.reload();
+}
 
 declare const initSqlJs: (cfg: { locateFile: (f: string) => string }) => Promise<{ Database: new (data?: Uint8Array) => any }>;
 
@@ -56,6 +71,7 @@ async function init() {
   SQL = await initSqlJs({ locateFile: (f) => f });
   const bytes = await store.get<Uint8Array>('kv', 'db');
   db = await openDatabase(bytes ?? undefined);
+  if (__DEMO__ && !bytes) seedDemo(db as any);   // דמו: נתוני דוגמה בפעם הראשונה
   await persist(true);
   try { await navigator.storage?.persist?.(); } catch { /* ignore */ }
   await dailySnapshot();
@@ -97,8 +113,11 @@ async function api(path: string, opts: { method?: string; body?: unknown } = {})
 }
 
 async function finish(result: ApiResult) {
-  if ('json' in result) return result.json;
-  if ('html' in result) return { html: result.html };
+  if ('json' in result) {
+    const j = result.json as any;
+    return __DEMO__ && j && typeof j.html === 'string' ? { ...j, html: demoMark(j.html) } : j;   // תצוגה מקדימה
+  }
+  if ('html' in result) return { html: demoMark(result.html) };
   const label = result.printable.finalize?.().label;   // ההדפסה עצמה נעשית בממשק
   if (label === 'מקור') pendingWrites.push(store.put('outputs', result.printable.filename.replace(/\.pdf$/, '.html'), result.printable.html));
   return { printable: { html: result.printable.html, filename: result.printable.filename } };
@@ -119,7 +138,7 @@ function printHtml(html: string, filename: string) {
       setTimeout(() => { document.title = prev; frame.remove(); }, 1500);
     }, 100);
   };
-  frame.srcdoc = html;
+  frame.srcdoc = demoMark(html);   // כל הדפסה (מסמך, דוח, דוח מגיבוי) עוברת כאן
 }
 
 function showHtmlInWindow(win: Window | null, html: string) {
@@ -263,6 +282,16 @@ async function restoreFromFile(file: File) {
 (window as any).pinkasLocal = {
   api, print: printHtml, showHtmlInWindow, openAttachment, exportBackup, verifyBackupFile, reportFromBackupFile, restoreFromFile,
 };
+if (__DEMO__) {
+  const bar = document.createElement('div');
+  bar.style.cssText = 'background:#fff3cd;color:#664d03;border-bottom:1px solid #ffe69c;padding:8px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:14px';
+  bar.innerHTML = '<b>גרסת דמו</b><span>כל הנתונים בדויים ונשמרים רק בדפדפן הזה. אפשר לנסות הכול בחופשיות – זה לא משפיע על הספרים האמיתיים.</span>';
+  const btn = document.createElement('button');
+  btn.className = 'btn small'; btn.textContent = 'איפוס הדמו (חזרה לנתוני הדוגמה)';
+  btn.onclick = () => { if (confirm('למחוק את כל מה ששינית בדמו ולחזור לנתוני הדוגמה?')) resetDemo(); };
+  bar.appendChild(btn);
+  document.body.prepend(bar);
+}
 (window as any).pinkasReady = init().catch((e) => {
   document.body.innerHTML = `<div style="padding:24px;font-family:Arial;direction:rtl"><h2>פנקס לא הצליח לעלות</h2><p>${String(e?.message ?? e)}</p>
     <p>ודא שהדפדפן מעודכן (Chrome / Edge) ושלא נחסם אחסון מקומי לאתר.</p></div>`;

@@ -5,7 +5,8 @@
  *  outputs:     ה"מקור" שהופק (HTML), לארכיון
  *  snapshots:   גיבוי יומי אוטומטי בתוך הדפדפן (14 אחרונים)
  */
-const DB_NAME = 'pinkas';
+declare const __DEMO__: boolean;   // נקבע בבנייה (build-web.mjs): גרסת הדמו שומרת במסד נפרד
+export const DB_NAME = __DEMO__ ? 'pinkas-demo' : 'pinkas';
 const STORES = ['kv', 'attachments', 'outputs', 'snapshots'] as const;
 type StoreName = (typeof STORES)[number];
 
