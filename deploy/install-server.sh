@@ -16,12 +16,42 @@ DATA=/var/lib/pinkas
 SVC_USER=pinkas
 PORT=5174
 SVC_HOME=/home/$SVC_USER
-PDF_TMP=$SVC_HOME/snap/chromium/common/pdf-tmp   # snap Chromium can only see its own folder
+PDF_TMP=$DATA/pdf-tmp
+CHS=/opt/chrome-headless-shell          # PDF engine: Chrome for Testing "headless shell" (Google, official)
+BROWSER=$CHS/chrome-headless-shell
+# Ubuntu blocks unprivileged user namespaces, so Chrome's sandbox can't start under a service user.
+# Pinkas only prints HTML it rendered itself (local file, no web content), so the sandbox is disabled for it.
+BROWSER_ARGS=--no-sandbox
 
-echo "== 1/7 System packages (git, Hebrew fonts, Chromium for PDF)"
+echo "== 1/7 System packages (git, Hebrew fonts, libraries for headless Chrome)"
 apt-get update -qq
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl ca-certificates xz-utils fonts-culmus fonts-noto-core fonts-dejavu-core >/dev/null
-snap list chromium >/dev/null 2>&1 || snap install chromium
+export DEBIAN_FRONTEND=noninteractive
+apt-get install -y -qq git curl ca-certificates xz-utils unzip fonts-culmus fonts-noto-core fonts-dejavu-core >/dev/null
+for p in libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libatspi2.0-0 libcups2 libdbus-1-3 libdrm2 libgbm1 libxkbcommon0 \
+         libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libpango-1.0-0 libcairo2 libasound2 libexpat1 libglib2.0-0; do
+  apt-get install -y -qq "$p" >/dev/null 2>&1 || apt-get install -y -qq "${p}t64" >/dev/null 2>&1 || echo "   (package $p not found)"
+done
+# Chromium from snap can't run under a system service user ("cannot track application process") – not used.
+if snap list chromium >/dev/null 2>&1; then snap remove --purge chromium >/dev/null && echo "   removed snap chromium (not usable by the service)"; fi
+
+echo "== 1b/7 Headless Chrome for PDF (Chrome for Testing, Stable)"
+ver=$(curl -fsSL https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json \
+      | tr -d ' \n\r' | sed -n 's/.*"Stable":{[^}]*"version":"\([0-9.]*\)".*/\1/p')
+[ -n "$ver" ] || { echo "!! could not read the Chrome for Testing version list"; exit 1; }
+if [ -x "$BROWSER" ] && [ "$(cat "$CHS/VERSION" 2>/dev/null)" = "$ver" ]; then
+  echo "   already installed ($ver)"
+else
+  tmp=$(mktemp -d)
+  curl -fsSL "https://storage.googleapis.com/chrome-for-testing-public/$ver/linux64/chrome-headless-shell-linux64.zip" -o "$tmp/chs.zip"
+  unzip -q "$tmp/chs.zip" -d "$tmp"
+  rm -rf "$CHS" && mv "$tmp/chrome-headless-shell-linux64" "$CHS"
+  echo "$ver" > "$CHS/VERSION"
+  chown -R root:root "$CHS" && chmod -R go-w "$CHS"
+  rm -rf "$tmp"
+  echo "   installed $ver"
+fi
+missing=$(ldd "$BROWSER" | grep "not found" || true)
+[ -z "$missing" ] || { echo "!! missing libraries for headless Chrome:"; echo "$missing"; }
 
 echo "== 2/7 Node.js $NODE_MAJOR (official build from nodejs.org, checksum verified)"
 if [ -x "$NODE_DIR/bin/node" ] && "$NODE_DIR/bin/node" -v | grep -q "^v$NODE_MAJOR\."; then
@@ -41,7 +71,8 @@ echo "   node $("$NODE_DIR/bin/node" -v)"
 
 echo "== 3/7 Service user and data folder"
 id "$SVC_USER" >/dev/null 2>&1 || useradd --system --create-home --home-dir "$SVC_HOME" --shell /usr/sbin/nologin "$SVC_USER"
-install -d -m 700 -o "$SVC_USER" -g "$SVC_USER" "$DATA" "$SVC_HOME/snap" "$SVC_HOME/snap/chromium" "$SVC_HOME/snap/chromium/common" "$PDF_TMP"
+install -d -m 700 -o "$SVC_USER" -g "$SVC_USER" "$DATA" "$PDF_TMP"
+rm -rf "$SVC_HOME/snap"   # left over from the snap attempt
 
 echo "== 4/7 Pinkas code"
 if [ -d "$APP/.git" ]; then
@@ -71,7 +102,8 @@ WorkingDirectory=$DATA
 Environment=HOME=$SVC_HOME
 Environment=PINKAS_DATA=$DATA
 Environment=PINKAS_PORT=$PORT
-Environment=PINKAS_BROWSER=/snap/bin/chromium
+Environment=PINKAS_BROWSER=$BROWSER
+Environment=PINKAS_BROWSER_ARGS=$BROWSER_ARGS
 Environment=PINKAS_PDF_TMP=$PDF_TMP
 EnvironmentFile=-/etc/pinkas.env
 ExecStart=$NODE_DIR/bin/node $APP/src/server.ts
@@ -92,8 +124,8 @@ if ! systemctl is-active --quiet pinkas; then
 fi
 curl -fsS -o /dev/null "http://127.0.0.1:$PORT/login.html" -H "Host: localhost:$PORT" && echo "   service is running on 127.0.0.1:$PORT"
 
-echo "== 6/7 PDF test (Chromium)"
-if (cd "$DATA" && sudo -u "$SVC_USER" env HOME="$SVC_HOME" PINKAS_BROWSER=/snap/bin/chromium PINKAS_PDF_TMP="$PDF_TMP" \
+echo "== 6/7 PDF test (headless Chrome, as the service user)"
+if (cd "$DATA" && sudo -u "$SVC_USER" env HOME="$SVC_HOME" PINKAS_BROWSER="$BROWSER" PINKAS_BROWSER_ARGS="$BROWSER_ARGS" PINKAS_PDF_TMP="$PDF_TMP" \
      "$NODE_DIR/bin/node" -e "import('$APP/src/render/pdf.ts').then(m => m.htmlToPdf('<meta charset=utf-8><p dir=rtl>בדיקה 123</p>')).then(b => console.log('   PDF OK, bytes:', b.length))"); then :
 else echo "!! PDF test FAILED - send this output"; fi
 
